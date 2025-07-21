@@ -1,4 +1,3 @@
-const express = require('express');
 const axios = require('axios');
 const xlsx = require('xlsx');
 const fs = require('fs');
@@ -8,33 +7,20 @@ const os = require('os');
 const API_URL = 'https://fleet.cloudfleet.com/api/v1/checklist/';
 const API_TOKEN = 'GRXZmHk.Ux35aG6PkT3-sTMRYLnM4IR1YSkhqInHe';
 
-const app = express();
-const PORT = process.env.PORT || 3000;
+// Leer fechas desde argumentos
+const fechaDesde = process.argv[2];
+const fechaHasta = process.argv[3];
 
-// Detectar si corre en servidor (Render, Vercel) para usar carpeta /tmp, sino Escritorio local
-const esServidor = process.env.RENDER === 'true' || process.env.VERCEL === '1';
-const saveFolder = esServidor ? '/tmp' : path.join(os.homedir(), 'Desktop');
-
-async function obtenerChecklists(fechaDesde, fechaHasta) {
-    const params = {
-        checklistDateFrom: `${fechaDesde}T00:00:00Z`,
-        checklistDateTo: `${fechaHasta}T23:59:59Z`,
-        page: 1
-    };
-
-    try {
-        const response = await axios.get(API_URL, {
-            headers: {
-                Authorization: `Bearer ${API_TOKEN}`,
-                'Content-Type': 'application/json; charset=utf-8'
-            },
-            params
-        });
-        return response.data || [];
-    } catch (error) {
-        throw error;
-    }
+if (!fechaDesde || !fechaHasta) {
+    console.error('⚠️ Debés pasar las fechas como argumentos. Ej: node checklist.js 2025-07-14 2025-07-21');
+    process.exit(1);
 }
+
+const params = {
+    checklistDateFrom: `${fechaDesde}T00:00:00Z`,
+    checklistDateTo: `${fechaHasta}T23:59:59Z`,
+    page: 1
+};
 
 function aplanarChecklist(checklist) {
     return {
@@ -72,73 +58,47 @@ function aplanarChecklist(checklist) {
     };
 }
 
-async function exportarChecklistsAExcel(fechaDesde, fechaHasta) {
-    const checklists = await obtenerChecklists(fechaDesde, fechaHasta);
+async function descargarChecklists() {
+    try {
+        console.log(`⏳ Descargando checklists desde ${fechaDesde} hasta ${fechaHasta}...`);
 
-    if (checklists.length === 0) {
-        throw new Error('No se encontraron checklists.');
+        const response = await axios.get(API_URL, {
+            headers: {
+                Authorization: `Bearer ${API_TOKEN}`,
+                'Content-Type': 'application/json; charset=utf-8'
+            },
+            params
+        });
+
+        const checklists = response.data || [];
+
+        if (checklists.length === 0) {
+            console.log('⚠️ No se encontraron checklists.');
+            return;
+        }
+
+        const checklistsPlanos = checklists.map(aplanarChecklist);
+
+        const worksheet = xlsx.utils.json_to_sheet(checklistsPlanos);
+        const workbook = xlsx.utils.book_new();
+        xlsx.utils.book_append_sheet(workbook, worksheet, 'Checklists');
+
+        const esServidor = process.env.RENDER === 'true' || process.env.VERCEL === '1';
+        const saveFolder = esServidor ? '/tmp' : path.join(os.homedir(), 'Desktop');
+        const excelPath = path.join(saveFolder, `checklists_${fechaDesde}_al_${fechaHasta}.xlsx`);
+
+        xlsx.writeFile(workbook, excelPath);
+
+        console.log(`✅ Archivo Excel generado en: ${excelPath}`);
+
+    } catch (error) {
+        if (error.response) {
+            console.error('❌ Código de error:', error.response.status);
+            console.error('❌ Mensaje API:', error.response.data);
+        } else {
+            console.error('❌ Error general:', error.message);
+        }
     }
-
-    const checklistsPlanos = checklists.map(aplanarChecklist);
-
-    const worksheet = xlsx.utils.json_to_sheet(checklistsPlanos);
-    const workbook = xlsx.utils.book_new();
-    xlsx.utils.book_append_sheet(workbook, worksheet, 'Checklists');
-
-    // Crear carpeta si no existe
-    if (!fs.existsSync(saveFolder)) {
-        fs.mkdirSync(saveFolder, { recursive: true });
-    }
-
-    const filename = `checklists_${fechaDesde}_al_${fechaHasta}.xlsx`;
-    const excelPath = path.join(saveFolder, filename);
-
-    xlsx.writeFile(workbook, excelPath);
-
-    return excelPath;
 }
 
-// Endpoint para generar archivo
-app.get('/generar/checklists', async (req, res) => {
-    const { desde, hasta } = req.query;
-
-    if (!desde || !hasta) {
-        return res.status(400).send('❌ Faltan parámetros "desde" y/o "hasta". Ejemplo: /generar/checklists?desde=2025-07-14&hasta=2025-07-21');
-    }
-
-    try {
-        const pathArchivo = await exportarChecklistsAExcel(desde, hasta);
-        res.send(`✅ Archivo generado correctamente en: ${pathArchivo}\nAhora podés descargarlo desde /descargar/checklists?desde=${desde}&hasta=${hasta}`);
-    } catch (error) {
-        console.error('❌ Error generando checklists:', error.message || error);
-        res.status(500).send(`❌ Error generando archivo: ${error.message || error}`);
-    }
-});
-
-// Endpoint para descargar archivo
-app.get('/descargar/checklists', (req, res) => {
-    const { desde, hasta } = req.query;
-
-    if (!desde || !hasta) {
-        return res.status(400).send('❌ Faltan parámetros "desde" y/o "hasta".');
-    }
-
-    const filename = `checklists_${desde}_al_${hasta}.xlsx`;
-    const excelPath = path.join(saveFolder, filename);
-
-    if (!fs.existsSync(excelPath)) {
-        return res.status(404).send('⚠️ Archivo no encontrado. Primero generá el archivo con /generar/checklists');
-    }
-
-    res.download(excelPath, filename, (err) => {
-        if (err) {
-            console.error('❌ Error al enviar archivo:', err);
-            res.status(500).send('❌ Error al enviar archivo.');
-        }
-    });
-});
-
-// Iniciar servidor
-app.listen(PORT, () => {
-    console.log(`🚀 Servidor activo en http://localhost:${PORT}`);
-});
+descargarChecklists();

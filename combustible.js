@@ -1,18 +1,14 @@
-const express = require('express');
 const axios = require('axios');
 const xlsx = require('xlsx');
 const fs = require('fs');
 const path = require('path');
-const os = require('os');  // Para detectar el home y escritorio
+const os = require('os');
 
 const API_URL = 'https://fleet.cloudfleet.com/api/v1/vehicles/';
 const API_TOKEN = 'GRXZmHk.Ux35aG6PkT3-sTMRYLnM4IR1YSkhqInHe';
 
-const app = express();
-const PORT = process.env.PORT || 3000;
-
-// Carpeta Escritorio del usuario
-const saveFolder = path.join(os.homedir(), 'Desktop');
+const esServidor = process.env.RENDER === 'true' || process.env.VERCEL === '1';
+const saveFolder = esServidor ? '/tmp' : path.join(os.homedir(), 'Desktop');
 const excelFilename = 'vehiculos.xlsx';
 const excelPath = path.join(saveFolder, excelFilename);
 
@@ -60,11 +56,6 @@ async function exportarVehiculosAExcel() {
         return;
     }
 
-    // Crear carpeta Escritorio si no existe (normalmente ya existe, pero por precaución)
-    if (!fs.existsSync(saveFolder)) {
-        fs.mkdirSync(saveFolder, { recursive: true });
-    }
-
     const datosSimplificados = vehiculos.map(v => ({
         Código: v.code || '-',
         Tipo: v.typeName || '-',
@@ -91,32 +82,4 @@ async function exportarVehiculosAExcel() {
     console.log(`✅ Archivo Excel generado en: ${excelPath}`);
 }
 
-// Endpoint que exporta y prepara el archivo
-app.get('/generar/excel', async (req, res) => {
-    try {
-        await exportarVehiculosAExcel();
-        res.send(`✅ Archivo generado. Ahora podés descargarlo desde /descargar/excel`);
-    } catch (error) {
-        console.error('❌ Error al generar el archivo:', error);
-        res.status(500).send('❌ Error generando archivo.');
-    }
-});
-
-// Endpoint para descargar el archivo
-app.get('/descargar/excel', (req, res) => {
-    if (fs.existsSync(excelPath)) {
-        res.download(excelPath, excelFilename, (err) => {
-            if (err) {
-                console.error('❌ Error al enviar archivo:', err);
-                res.status(500).send('❌ Error al enviar archivo.');
-            }
-        });
-    } else {
-        res.status(404).send('⚠️ No hay archivo generado. Primero accedé a /generar/excel.');
-    }
-});
-
-// Iniciar servidor
-app.listen(PORT, () => {
-    console.log(`🚀 Servidor activo en http://localhost:${PORT}`);
-});
+exportarVehiculosAExcel();

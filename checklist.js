@@ -14,7 +14,6 @@ if (!fechaDesde || !fechaHasta) {
   console.error('⚠️ Debés pasar las fechas como argumentos. Ej: node checklist.js 2025-07-14 2025-07-21');
   process.exit(1);
 }
-
 function aplanarChecklist(checklist) {
   return {
     number: checklist.number,
@@ -51,9 +50,11 @@ function aplanarChecklist(checklist) {
   };
 }
 
+
 async function descargarChecklists() {
   let checklistsTotales = [];
   let paginaActual = 1;
+  const LIMITE_POR_PAGINA = 50;  // Asumimos que es 50 por página
 
   try {
     while (true) {
@@ -69,20 +70,27 @@ async function descargarChecklists() {
         }
       });
 
-      const checklists = response.data || [];
+      const data = response.data?.data || response.data || [];
 
-      if (checklists.length === 0) {
-        break; // No quedan más resultados
+      if (!Array.isArray(data) || data.length === 0) {
+        console.log(`🚩 Fin de resultados. Total final: ${checklistsTotales.length}`);
+        break;
       }
 
-      checklistsTotales = checklistsTotales.concat(checklists);
-      console.log(`Página ${paginaActual} descargada, total acumulado: ${checklistsTotales.length}`);
+      checklistsTotales = checklistsTotales.concat(data);
+
+      console.log(`📄 Página ${paginaActual}: descargados ${data.length}, acumulados ${checklistsTotales.length}`);
+
+      if (data.length < LIMITE_POR_PAGINA) {
+        console.log('📌 Última página detectada por menos registros.');
+        break;  // Fin de datos
+      }
 
       paginaActual++;
     }
 
     if (checklistsTotales.length === 0) {
-      console.log('⚠️ No se encontraron checklists para esas fechas.');
+      console.log('⚠️ No se encontraron checklists.');
       return;
     }
 
@@ -101,12 +109,7 @@ async function descargarChecklists() {
     console.log(`✅ Archivo Excel generado en: ${excelPath}`);
 
   } catch (error) {
-    if (error.response) {
-      console.error('❌ Código de error:', error.response.status);
-      console.error('❌ Mensaje API:', error.response.data);
-    } else {
-      console.error('❌ Error general:', error.message);
-    }
+    console.error('❌ Error:', error.response?.data || error.message);
   }
 }
 

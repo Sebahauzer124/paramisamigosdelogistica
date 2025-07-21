@@ -49,7 +49,7 @@ app.get('/ejecutar/:script', (req, res) => {
 });
 
 // Descarga archivo de vehículos (combustible)
-app.get('/descargar/combustible', (req, res) => {
+app.get('https://paramisamigosdelogistica.onrender.com/descargar/combustible', (req, res) => {
     const filePath = path.join(desktopPath, 'vehiculos.xlsx');
     if (!fs.existsSync(filePath)) {
         return res.status(404).send('⚠️ Archivo de vehículos no encontrado.');
@@ -58,7 +58,7 @@ app.get('/descargar/combustible', (req, res) => {
 });
 
 // Descarga archivo de checklist (requiere rango de fechas)
-app.get('/descargar/checklist', (req, res) => {
+app.get('https://paramisamigosdelogistica.onrender.com/descargar/checklist', (req, res) => {
     const { desde, hasta } = req.query;
     if (!desde || !hasta) {
         return res.status(400).send('⚠️ Faltan parámetros desde/hasta.');

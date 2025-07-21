@@ -8,13 +8,15 @@
         button { margin: 10px; padding: 10px 20px; font-size: 16px; }
         input[type="date"] { font-size: 16px; padding: 5px; }
         #log { margin-top: 20px; background: #fff; padding: 10px; border: 1px solid #ccc; }
+        a.descargar { display: none; margin: 10px 0; font-weight: bold; }
     </style>
 </head>
 <body>
 
     <h1>Exportación desde CloudFleet</h1>
 
-    <button onclick="ejecutar('combustible')">Descargar Vehículos (combustible.js)</button>
+    <button onclick="ejecutar('combustible')">Descargar Vehículos</button>
+    <a id="linkDescargaCombustible" class="descargar" href="#" download>📥 Descargar Vehículos Excel</a>
 
     <h3>Exportar Checklists</h3>
     <label>Fecha única:</label>
@@ -25,17 +27,24 @@
     Hasta: <input type="date" id="fechaHasta">
     <br>
     <button onclick="exportarChecklist()">Descargar Checklists</button>
+    <a id="linkDescargaChecklist" class="descargar" href="#" download>📥 Descargar Checklists Excel</a>
 
     <div id="log">Esperando acciones...</div>
 
     <script>
         function ejecutar(tipo) {
             document.getElementById('log').innerText = `⏳ Ejecutando ${tipo}...`;
+            const linkDescarga = document.getElementById('linkDescargaCombustible');
+            linkDescarga.style.display = 'none';
 
             fetch(`/ejecutar/${tipo}`)
                 .then(res => res.text())
                 .then(msg => {
                     document.getElementById('log').innerText = msg;
+                    if (tipo === 'combustible') {
+                        linkDescarga.href = '/descargar/combustible';
+                        linkDescarga.style.display = 'inline-block';
+                    }
                 })
                 .catch(() => {
                     document.getElementById('log').innerText = '❌ Error ejecutando el proceso.';
@@ -46,13 +55,19 @@
             const fecha = document.getElementById('fechaChecklist').value;
             const desde = document.getElementById('fechaDesde').value;
             const hasta = document.getElementById('fechaHasta').value;
+            const linkDescarga = document.getElementById('linkDescargaChecklist');
+            linkDescarga.style.display = 'none';
 
             let url = '/ejecutar/checklist?';
 
+            let descargaUrl = '/descargar/checklist?';
+
             if (desde && hasta) {
                 url += `desde=${desde}&hasta=${hasta}`;
+                descargaUrl += `desde=${desde}&hasta=${hasta}`;
             } else if (fecha) {
                 url += `fecha=${fecha}`;
+                descargaUrl += `desde=${fecha}&hasta=${fecha}`;
             } else {
                 document.getElementById('log').innerText = '⚠️ Seleccioná una fecha o un rango antes de exportar.';
                 return;
@@ -64,6 +79,8 @@
                 .then(res => res.text())
                 .then(msg => {
                     document.getElementById('log').innerText = msg;
+                    linkDescarga.href = descargaUrl;
+                    linkDescarga.style.display = 'inline-block';
                 })
                 .catch(() => {
                     document.getElementById('log').innerText = '❌ Error ejecutando el proceso.';

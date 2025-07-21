@@ -16,12 +16,6 @@ if (!fechaDesde || !fechaHasta) {
     process.exit(1);
 }
 
-const params = {
-    checklistDateFrom: `${fechaDesde}T00:00:00Z`,
-    checklistDateTo: `${fechaHasta}T23:59:59Z`,
-    page: 1
-};
-
 function aplanarChecklist(checklist) {
     return {
         number: checklist.number,
@@ -62,15 +56,32 @@ async function descargarChecklists() {
     try {
         console.log(`⏳ Descargando checklists desde ${fechaDesde} hasta ${fechaHasta}...`);
 
-        const response = await axios.get(API_URL, {
-            headers: {
-                Authorization: `Bearer ${API_TOKEN}`,
-                'Content-Type': 'application/json; charset=utf-8'
-            },
-            params
-        });
+        let checklists = [];
+        let paginaActual = 1;
+        let hayMasPaginas = true;
 
-        const checklists = response.data || [];
+        while (hayMasPaginas) {
+            console.log(`📄 Descargando página ${paginaActual}...`);
+
+            const response = await axios.get(API_URL, {
+                headers: {
+                    Authorization: `Bearer ${API_TOKEN}`,
+                    'Content-Type': 'application/json; charset=utf-8'
+                },
+                params: {
+                    checklistDateFrom: `${fechaDesde}T00:00:00Z`,
+                    checklistDateTo: `${fechaHasta}T23:59:59Z`,
+                    page: paginaActual
+                }
+            });
+
+            const datosPagina = response.data?.data || response.data || [];
+            checklists = checklists.concat(datosPagina);
+
+            const nextPage = response.headers['x-next-page'];
+            hayMasPaginas = !!nextPage;
+            paginaActual++;
+        }
 
         if (checklists.length === 0) {
             console.log('⚠️ No se encontraron checklists.');

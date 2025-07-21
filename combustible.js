@@ -1,14 +1,19 @@
+const express = require('express');
 const axios = require('axios');
 const xlsx = require('xlsx');
 const fs = require('fs');
 const path = require('path');
-const os = require('os'); // ← esto es nuevo
 
 const API_URL = 'https://fleet.cloudfleet.com/api/v1/vehicles/';
 const API_TOKEN = 'GRXZmHk.Ux35aG6PkT3-sTMRYLnM4IR1YSkhqInHe';
 
-// Si querés filtrar por código de vehículo, colocá el valor. Si no, dejá vacío:
-const VEHICLE_CODE = '';  // Ejemplo: 'AAA123'
+const app = express();
+const PORT = process.env.PORT || 3000;
+
+// Carpeta temporal del servidor
+const saveFolder = '/tmp';
+const excelFilename = 'vehiculos.xlsx';
+const excelPath = path.join(saveFolder, excelFilename);
 
 function formatoFecha(fecha) {
     if (!fecha) return '-';
@@ -27,10 +32,7 @@ async function obtenerVehiculos() {
                     Authorization: `Bearer ${API_TOKEN}`,
                     'Content-Type': 'application/json; charset=utf-8'
                 },
-                params: {
-                    page: paginaActual,
-                    ...(VEHICLE_CODE ? { code: VEHICLE_CODE } : {})
-                }
+                params: { page: paginaActual }
             });
 
             const datosPagina = response.data?.data || response.data || [];
@@ -39,8 +41,6 @@ async function obtenerVehiculos() {
             const nextPage = response.headers['x-next-page'];
             hayMasPaginas = !!nextPage;
             paginaActual++;
-
-            if (VEHICLE_CODE) hayMasPaginas = false;
 
         } catch (error) {
             console.error('❌ Error:', error.response?.data || error.message);
@@ -80,15 +80,37 @@ async function exportarVehiculosAExcel() {
     const workbook = xlsx.utils.book_new();
     xlsx.utils.book_append_sheet(workbook, worksheet, 'Vehículos');
 
-    // Ruta al escritorio del usuario actual:
-    const desktopPath = path.join(os.homedir(), 'Desktop'); // o 'Escritorio' si tu sistema está en español
-
-    const filename = VEHICLE_CODE ? `vehiculo_${VEHICLE_CODE}.xlsx` : 'vehiculos.xlsx';
-    const excelPath = path.join(desktopPath, filename);
-
     xlsx.writeFile(workbook, excelPath);
 
     console.log(`✅ Archivo Excel generado en: ${excelPath}`);
 }
 
-exportarVehiculosAExcel();
+// Endpoint que exporta y prepara el archivo
+app.get('/generar/excel', async (req, res) => {
+    try {
+        await exportarVehiculosAExcel();
+        res.send('✅ Archivo generado. Ahora podés descargarlo desde /descargar/excel');
+    } catch (error) {
+        console.error('❌ Error al generar el archivo:', error);
+        res.status(500).send('❌ Error generando archivo.');
+    }
+});
+
+// Endpoint para descargar el archivo
+app.get('/descargar/excel', (req, res) => {
+    if (fs.existsSync(excelPath)) {
+        res.download(excelPath, excelFilename, (err) => {
+            if (err) {
+                console.error('❌ Error al enviar archivo:', err);
+                res.status(500).send('❌ Error al enviar archivo.');
+            }
+        });
+    } else {
+        res.status(404).send('⚠️ No hay archivo generado. Primero accedé a /generar/excel.');
+    }
+});
+
+// Iniciar servidor
+app.listen(PORT, () => {
+    console.log(`🚀 Servidor activo en http://localhost:${PORT}`);
+});

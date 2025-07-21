@@ -13,7 +13,7 @@ const fechaDesde = process.argv[2];
 const fechaHasta = process.argv[3];
 
 if (!fechaDesde || !fechaHasta) {
-    console.error('⚠️ Debés pasar las fechas como argumentos. Ej: node checklist.js 2025-07-14 2025-07-21');
+    console.error('⚠️ Debés pasar las fechas como argumentos. Ej: node checklist_rango.js 2025-07-14 2025-07-21');
     process.exit(1);
 }
 
@@ -86,7 +86,9 @@ async function descargarChecklists() {
         const workbook = xlsx.utils.book_new();
         xlsx.utils.book_append_sheet(workbook, worksheet, 'Checklists');
 
-        const saveFolder = path.join(os.homedir(), 'Desktop');
+        // Carpeta destino: escritorio local o /tmp en servidores
+        const esServidor = process.env.RENDER === 'true' || process.env.VERCEL === '1';
+        const saveFolder = esServidor ? '/tmp' : path.join(os.homedir(), 'Desktop');
         const excelPath = path.join(saveFolder, `checklists_${fechaDesde}_al_${fechaHasta}.xlsx`);
 
         xlsx.writeFile(workbook, excelPath);

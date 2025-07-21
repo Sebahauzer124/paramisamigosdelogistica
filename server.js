@@ -7,36 +7,32 @@ const os = require('os');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// Detectar si corre en Render o Vercel
 const esServidor = process.env.RENDER === 'true' || process.env.VERCEL === '1';
 const desktopPath = esServidor ? '/tmp' : path.join(os.homedir(), 'Desktop');
 
-// Sirve archivos estáticos desde 'public'
+// Servir archivos estáticos (HTML y JS frontend)
 app.use(express.static('public'));
 
-// Ejecutar scripts: combustible.js y checklist.js (con params)
+// Ruta para ejecutar scripts
 app.get('/ejecutar/:script', (req, res) => {
     const { script } = req.params;
     const { fecha, desde, hasta } = req.query;
 
     let comando;
 
-    switch (script) {
-        case 'combustible':
-            comando = 'node combustible.js';
-            break;
-
-        case 'checklist':
-            if (desde && hasta) {
-                comando = `node checklist.js ${desde} ${hasta}`;
-            } else if (fecha) {
-                comando = `node checklist.js ${fecha} ${fecha}`;
-            } else {
-                return res.status(400).send('❌ Faltan parámetros: fecha o rango desde/hasta.');
-            }
-            break;
-
-        default:
-            return res.status(400).send('❌ Script no válido.');
+    if (script === 'combustible') {
+        comando = 'node combustible.js';
+    } else if (script === 'checklist') {
+        if (desde && hasta) {
+            comando = `node checklist.js ${desde} ${hasta}`;
+        } else if (fecha) {
+            comando = `node checklist.js ${fecha} ${fecha}`;
+        } else {
+            return res.status(400).send('❌ Faltan parámetros: fecha o rango desde/hasta.');
+        }
+    } else {
+        return res.status(400).send('❌ Script no válido.');
     }
 
     console.log(`⏳ Ejecutando: ${comando}`);
@@ -52,31 +48,30 @@ app.get('/ejecutar/:script', (req, res) => {
     });
 });
 
-// Endpoint descarga archivo combustible
+// Descarga archivo de vehículos (combustible)
 app.get('/descargar/combustible', (req, res) => {
     const filePath = path.join(desktopPath, 'vehiculos.xlsx');
-    if (!fs.existsSync(filePath)) return res.status(404).send('Archivo no encontrado.');
-    res.download(filePath, 'vehiculos.xlsx', err => {
-        if (err) {
-            console.error('Error enviando archivo:', err);
-            res.status(500).send('Error enviando archivo.');
-        }
-    });
+    if (!fs.existsSync(filePath)) {
+        return res.status(404).send('⚠️ Archivo de vehículos no encontrado.');
+    }
+    res.download(filePath, 'vehiculos.xlsx');
 });
 
-// Endpoint descarga archivo checklist (con fechas en query)
+// Descarga archivo de checklist (requiere rango de fechas)
 app.get('/descargar/checklist', (req, res) => {
     const { desde, hasta } = req.query;
-    if (!desde || !hasta) return res.status(400).send('Faltan fechas desde/hasta.');
+    if (!desde || !hasta) {
+        return res.status(400).send('⚠️ Faltan parámetros desde/hasta.');
+    }
+
     const fileName = `checklists_${desde}_al_${hasta}.xlsx`;
     const filePath = path.join(desktopPath, fileName);
-    if (!fs.existsSync(filePath)) return res.status(404).send('Archivo no encontrado.');
-    res.download(filePath, fileName, err => {
-        if (err) {
-            console.error('Error enviando archivo:', err);
-            res.status(500).send('Error enviando archivo.');
-        }
-    });
+
+    if (!fs.existsSync(filePath)) {
+        return res.status(404).send('⚠️ Archivo de checklist no encontrado.');
+    }
+
+    res.download(filePath, fileName);
 });
 
 // Iniciar servidor

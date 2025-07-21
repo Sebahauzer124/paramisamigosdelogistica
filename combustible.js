@@ -3,6 +3,7 @@ const axios = require('axios');
 const xlsx = require('xlsx');
 const fs = require('fs');
 const path = require('path');
+const os = require('os');  // Para detectar el home y escritorio
 
 const API_URL = 'https://fleet.cloudfleet.com/api/v1/vehicles/';
 const API_TOKEN = 'GRXZmHk.Ux35aG6PkT3-sTMRYLnM4IR1YSkhqInHe';
@@ -10,8 +11,8 @@ const API_TOKEN = 'GRXZmHk.Ux35aG6PkT3-sTMRYLnM4IR1YSkhqInHe';
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Carpeta temporal del servidor
-const saveFolder = '/tmp';
+// Carpeta Escritorio del usuario
+const saveFolder = path.join(os.homedir(), 'Desktop');
 const excelFilename = 'vehiculos.xlsx';
 const excelPath = path.join(saveFolder, excelFilename);
 
@@ -59,6 +60,11 @@ async function exportarVehiculosAExcel() {
         return;
     }
 
+    // Crear carpeta Escritorio si no existe (normalmente ya existe, pero por precaución)
+    if (!fs.existsSync(saveFolder)) {
+        fs.mkdirSync(saveFolder, { recursive: true });
+    }
+
     const datosSimplificados = vehiculos.map(v => ({
         Código: v.code || '-',
         Tipo: v.typeName || '-',
@@ -89,7 +95,7 @@ async function exportarVehiculosAExcel() {
 app.get('/generar/excel', async (req, res) => {
     try {
         await exportarVehiculosAExcel();
-        res.send('✅ Archivo generado. Ahora podés descargarlo desde /descargar/excel');
+        res.send(`✅ Archivo generado. Ahora podés descargarlo desde /descargar/excel`);
     } catch (error) {
         console.error('❌ Error al generar el archivo:', error);
         res.status(500).send('❌ Error generando archivo.');

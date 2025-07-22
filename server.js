@@ -6,7 +6,7 @@ const os = require('os');
 
 const { generarVentas } = require('./ventas');
 const { obtenerSessionId, obtenerArticulos, exportarArticulosExcel } = require('./articulos');
-const { obtenerStock, exportarStockExcel } = require('./stock');
+const { obtenerStock, exportarStockExcel } = require('./stock');  // <-- Agregado
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -68,17 +68,14 @@ app.get('/ejecutar/:script', async (req, res) => {
           archivo: nombreArchivo,
         });
 
-      // ✅ CORREGIDO: caso stock con orden correcto de parámetros
+      // NUEVO: caso stock
       case 'stock':
         if (!idDeposito || (frescura !== 'true' && frescura !== 'false')) {
           return res.status(400).send('❌ Faltan parámetros obligatorios: idDeposito y frescura.');
         }
-
         const fechaStock = fecha || null;
-        const frescuraBool = frescura === 'true';
 
-        // ⚠️ ORDEN CORRECTO: fecha, idDeposito, frescura
-        const stockData = await obtenerStock(fechaStock, idDeposito, frescuraBool);
+        const stockData = await obtenerStock(idDeposito, frescura === 'true', fechaStock);
 
         if (!Array.isArray(stockData) || stockData.length === 0) {
           return res.send('⚠️ No hay datos de stock para exportar.');
@@ -154,14 +151,16 @@ app.get('/descargar/ventas', (req, res) => {
 app.get('/descargar/articulos', (req, res) => {
   const { archivo } = req.query;
   if (!archivo) return res.status(400).send('❌ Falta parámetro archivo.');
+
   const ruta = path.join(carpetaEscritorio, archivo);
   descargarArchivo(res, ruta, archivo);
 });
 
-// 👉 Ruta descarga stock
+// NUEVO: ruta para descarga stock
 app.get('/descargar/stock', (req, res) => {
   const { archivo } = req.query;
   if (!archivo) return res.status(400).send('❌ Falta parámetro archivo.');
+
   const ruta = path.join(carpetaEscritorio, archivo);
   descargarArchivo(res, ruta, archivo);
 });

@@ -4,77 +4,169 @@ const path = require('path');
 const fs = require('fs');
 const os = require('os');
 
+const { generarVentas } = require('./ventas');
+const { obtenerSessionId, obtenerArticulos, exportarArticulosExcel } = require('./articulos');
+const { obtenerStock, exportarStockExcel } = require('./stock');
+
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Detectar si corre en Render o Vercel
 const esServidor = process.env.RENDER === 'true' || process.env.VERCEL === '1';
-const desktopPath = esServidor ? '/tmp' : path.join(os.homedir(), 'Desktop');
+const carpetaArchivos = esServidor ? '/tmp' : path.join(__dirname, 'archivos');
+const carpetaEscritorio = esServidor ? '/tmp' : path.join(os.homedir(), 'Desktop');
 
-// Servir archivos estáticos (HTML y JS frontend)
 app.use(express.static('public'));
 
-// Ruta para ejecutar scripts
-app.get('/ejecutar/:script', (req, res) => {
-    const { script } = req.params;
-    const { fecha, desde, hasta } = req.query;
+// 👉 Ejecutar procesos
+app.get('/ejecutar/:script', async (req, res) => {
+  const { script } = req.params;
+  const { fecha, desde, hasta, articulo, nroLote, anulado, idDeposito, frescura } = req.query;
 
-    let comando;
+  try {
+    switch (script) {
+      case 'combustible':
+        return ejecutarComando('node combustible.js', res);
 
-    if (script === 'combustible') {
-        comando = 'node combustible.js';
-    } else if (script === 'checklist') {
-        if (desde && hasta) {
-            comando = `node checklist.js ${desde} ${hasta}`;
-        } else if (fecha) {
-            comando = `node checklist.js ${fecha} ${fecha}`;
-        } else {
-            return res.status(400).send('❌ Faltan parámetros: fecha o rango desde/hasta.');
+      case 'checklist':
+        if (!fecha && (!desde || !hasta)) {
+          return res.status(400).send('❌ Faltan parámetros: fecha o rango desde/hasta.');
         }
-    } else {
+        const inicio = desde || fecha;
+        const fin = hasta || fecha;
+        return ejecutarComando(`node checklist.js ${inicio} ${fin}`, res);
+
+      case 'ventas':
+        if (!desde || !hasta) {
+          return res.status(400).send('❌ Faltan fechas desde/hasta.');
+        }
+        const archivoVentas = await generarVentas(desde, hasta);
+        return res.send(`✅ Ventas exportadas. Archivo: ${path.basename(archivoVentas)}`);
+
+      case 'articulos':
+        const sid = await obtenerSessionId();
+        const anuladoBool = anulado === 'true' || anulado === '1';
+
+        const filtros = {
+          articulo: articulo || '',
+          nroLote: nroLote || '',
+          anulado: anuladoBool,
+        };
+
+        const articulos = await obtenerArticulos(sid, filtros);
+
+        if (!Array.isArray(articulos) || articulos.length === 0) {
+          return res.send('⚠️ No hay artículos para exportar.');
+        }
+
+        const nombreArchivo = `articulos_${Date.now()}.xlsx`;
+        const rutaArchivo = path.join(carpetaEscritorio, nombreArchivo);
+
+        await exportarArticulosExcel(articulos, `Exportado desde ${desde || 'inicio'} hasta ${hasta || 'fin'}`, rutaArchivo);
+
+        return res.send({
+          mensaje: `✅ Artículos exportados.`,
+          archivo: nombreArchivo,
+        });
+
+      // ✅ CORREGIDO: caso stock con orden correcto de parámetros
+      case 'stock':
+        if (!idDeposito || (frescura !== 'true' && frescura !== 'false')) {
+          return res.status(400).send('❌ Faltan parámetros obligatorios: idDeposito y frescura.');
+        }
+
+        const fechaStock = fecha || null;
+        const frescuraBool = frescura === 'true';
+
+        // ⚠️ ORDEN CORRECTO: fecha, idDeposito, frescura
+        const stockData = await obtenerStock(fechaStock, idDeposito, frescuraBool);
+
+        if (!Array.isArray(stockData) || stockData.length === 0) {
+          return res.send('⚠️ No hay datos de stock para exportar.');
+        }
+
+        const nombreArchivoStock = `stock_${Date.now()}.xlsx`;
+        const rutaArchivoStock = path.join(carpetaEscritorio, nombreArchivoStock);
+
+        await exportarStockExcel(stockData, `Exportado Stock del depósito ${idDeposito} - frescura: ${frescura}`, rutaArchivoStock);
+
+        return res.send({
+          mensaje: `✅ Stock exportado.`,
+          archivo: nombreArchivoStock,
+        });
+
+      default:
         return res.status(400).send('❌ Script no válido.');
     }
-
-    console.log(`⏳ Ejecutando: ${comando}`);
-
-    exec(comando, (error, stdout, stderr) => {
-        if (error) {
-            console.error(`❌ Error ejecutando ${script}:`, stderr || error.message);
-            return res.status(500).send(`❌ Error ejecutando ${script}.`);
-        }
-
-        console.log(`✅ ${script} ejecutado correctamente.`);
-        res.send(`✅ ${script} ejecutado correctamente.`);
-    });
+  } catch (error) {
+    console.error(`❌ Error ejecutando ${script}:`, error.message);
+    res.status(500).send(`❌ Error ejecutando ${script}: ${error.message}`);
+  }
 });
 
-// Descarga archivo de vehículos (combustible)
+// 👉 Ejecutar un comando de shell
+function ejecutarComando(comando, res) {
+  console.log(`⏳ Ejecutando: ${comando}`);
+  exec(comando, (error, stdout, stderr) => {
+    if (error) {
+      console.error(`❌ Error ejecutando: ${stderr || error.message}`);
+      return res.status(500).send(`❌ Error ejecutando: ${error.message}`);
+    }
+    console.log(`✅ Comando ejecutado correctamente.`);
+    res.send(`✅ Proceso ejecutado correctamente.`);
+  });
+}
+
+// 👉 Descargar archivo
+function descargarArchivo(res, rutaArchivo, nombreArchivo) {
+  if (!fs.existsSync(rutaArchivo)) {
+    return res.status(404).send('❌ Archivo no encontrado.');
+  }
+  res.download(rutaArchivo, nombreArchivo, (err) => {
+    if (err) {
+      console.error('❌ Error enviando archivo:', err);
+      res.status(500).send('❌ Error enviando archivo.');
+    }
+  });
+}
+
+// 👉 Rutas de descarga
 app.get('/descargar/combustible', (req, res) => {
-    const filePath = path.join(desktopPath, 'vehiculos.xlsx');
-    if (!fs.existsSync(filePath)) {
-        return res.status(404).send('⚠️ Archivo de vehículos no encontrado.');
-    }
-    res.download(filePath, 'vehiculos.xlsx');
+  const ruta = path.join(carpetaEscritorio, 'vehiculos.xlsx');
+  descargarArchivo(res, ruta, 'vehiculos.xlsx');
 });
 
-// Descarga archivo de checklist (requiere rango de fechas)
 app.get('/descargar/checklist', (req, res) => {
-    const { desde, hasta } = req.query;
-    if (!desde || !hasta) {
-        return res.status(400).send('⚠️ Faltan parámetros desde/hasta.');
-    }
-
-    const fileName = `checklists_${desde}_al_${hasta}.xlsx`;
-    const filePath = path.join(desktopPath, fileName);
-
-    if (!fs.existsSync(filePath)) {
-        return res.status(404).send('⚠️ Archivo de checklist no encontrado.');
-    }
-
-    res.download(filePath, fileName);
+  const { desde, hasta } = req.query;
+  if (!desde || !hasta) return res.status(400).send('❌ Faltan fechas desde/hasta.');
+  const archivo = `checklists_${desde}_al_${hasta}.xlsx`;
+  const ruta = path.join(carpetaEscritorio, archivo);
+  descargarArchivo(res, ruta, archivo);
 });
 
-// Iniciar servidor
+app.get('/descargar/ventas', (req, res) => {
+  const { desde, hasta } = req.query;
+  if (!desde || !hasta) return res.status(400).send('❌ Faltan fechas desde/hasta.');
+  const archivo = `ventas_${desde}_al_${hasta}.xlsx`;
+  const ruta = path.join(carpetaArchivos, archivo);
+  descargarArchivo(res, ruta, archivo);
+});
+
+app.get('/descargar/articulos', (req, res) => {
+  const { archivo } = req.query;
+  if (!archivo) return res.status(400).send('❌ Falta parámetro archivo.');
+  const ruta = path.join(carpetaEscritorio, archivo);
+  descargarArchivo(res, ruta, archivo);
+});
+
+// 👉 Ruta descarga stock
+app.get('/descargar/stock', (req, res) => {
+  const { archivo } = req.query;
+  if (!archivo) return res.status(400).send('❌ Falta parámetro archivo.');
+  const ruta = path.join(carpetaEscritorio, archivo);
+  descargarArchivo(res, ruta, archivo);
+});
+
+// 👉 Iniciar servidor
 app.listen(PORT, () => {
-    console.log(`🚀 Servidor escuchando en http://localhost:${PORT}`);
+  console.log(`🚀 Servidor escuchando en http://localhost:${PORT}`);
 });

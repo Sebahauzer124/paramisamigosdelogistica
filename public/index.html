@@ -1,92 +1,257 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-    <meta charset="UTF-8">
-    <title>Descarga de Datos CloudFleet</title>
-    <style>
-        body { font-family: Arial; background: #f0f0f0; padding: 20px; }
-        button { margin: 10px; padding: 10px 20px; font-size: 16px; }
-        input[type="date"] { font-size: 16px; padding: 5px; }
-        #log { margin-top: 20px; background: #fff; padding: 10px; border: 1px solid #ccc; }
-        a.descargar { display: none; margin: 10px 0; font-weight: bold; }
-    </style>
+  <meta charset="UTF-8" />
+  <title>Descarga de Datos CloudFleet</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background: #f0f0f0;
+      padding: 20px;
+    }
+    button {
+      margin: 10px 0;
+      padding: 10px 20px;
+      font-size: 16px;
+      cursor: pointer;
+    }
+    input[type="date"],
+    input[type="text"],
+    select {
+      font-size: 16px;
+      padding: 5px;
+      margin-bottom: 10px;
+      width: 200px;
+    }
+    #log {
+      margin-top: 20px;
+      background: #fff;
+      padding: 10px;
+      border: 1px solid #ccc;
+      white-space: pre-wrap;
+      min-height: 40px;
+    }
+    a.descargar {
+      display: none;
+      margin: 10px 0;
+      font-weight: bold;
+      color: #0066cc;
+      text-decoration: none;
+    }
+    a.descargar:hover {
+      text-decoration: underline;
+    }
+    h1, h3 {
+      margin-top: 30px;
+    }
+  </style>
 </head>
 <body>
 
-    <h1>Exportación desde CloudFleet</h1>
+  <h1>Exportación desde CloudFleet</h1>
 
-    <button onclick="ejecutar('combustible')">Descargar Vehículos</button>
-    <a id="linkDescargaCombustible" class="descargar" href="#" download>📥 Descargar Vehículos Excel</a>
+  <button onclick="ejecutar('combustible')">Descargar Vehículos</button>
+  <a id="linkDescargaCombustible" class="descargar" href="#" download>📥 Descargar Vehículos Excel</a>
 
-    <h3>Exportar Checklists</h3>
-    <label>Fecha única:</label>
-    <input type="date" id="fechaChecklist">
-    <br><br>
-    <label>O bien Rango de fechas:</label><br>
-    Desde: <input type="date" id="fechaDesde">
-    Hasta: <input type="date" id="fechaHasta">
-    <br>
-    <button onclick="exportarChecklist()">Descargar Checklists</button>
-    <a id="linkDescargaChecklist" class="descargar" href="#" download>📥 Descargar Checklists Excel</a>
+  <h3>Exportar Checklists</h3>
+  <label for="fechaChecklist">Fecha única:</label><br />
+  <input type="date" id="fechaChecklist" />
+  <br /><br />
+  <label>O bien Rango de fechas:</label><br />
+  Desde: <input type="date" id="fechaDesde" />
+  Hasta: <input type="date" id="fechaHasta" />
+  <br />
+  <button onclick="exportarChecklist()">Descargar Checklists</button>
+  <a id="linkDescargaChecklist" class="descargar" href="#" download>📥 Descargar Checklists Excel</a>
 
-    <div id="log">Esperando acciones...</div>
+  <h3>Exportar Ventas</h3>
+  Desde: <input type="date" id="fechaVentasDesde" />
+  Hasta: <input type="date" id="fechaVentasHasta" />
+  <br />
+  <button onclick="exportarVentas()">Descargar Ventas</button>
+  <a id="linkDescargaVentas" class="descargar" href="#" download>📥 Descargar Ventas Excel</a>
 
-    <script>
-        function ejecutar(tipo) {
-            document.getElementById('log').innerText = `⏳ Ejecutando ${tipo}...`;
-            const linkDescarga = document.getElementById('linkDescargaCombustible');
-            linkDescarga.style.display = 'none';
+  <h3>Exportar Artículos</h3>
+  <label for="articuloFiltro">Filtro artículo (opcional):</label><br />
+  <input type="text" id="articuloFiltro" placeholder="Código artículo" />
+  <br />
+  <label for="articuloAnulado">Filtro anulado:</label><br />
+  <select id="articuloAnulado">
+    <option value="">Todos</option>
+    <option value="true">Anulados</option>
+    <option value="false">No anulados</option>
+  </select>
+  <br />
+  <button onclick="exportarArticulos()">Descargar Artículos</button>
+  <a id="linkDescargaArticulos" class="descargar" href="#" download>📥 Descargar Artículos Excel</a>
 
-            fetch(`/ejecutar/${tipo}`)
-                .then(res => res.text())
-                .then(msg => {
-                    document.getElementById('log').innerText = msg;
-                    if (tipo === 'combustible') {
-                        linkDescarga.href = '/descargar/combustible';
-                        linkDescarga.style.display = 'inline-block';
-                    }
-                })
-                .catch(() => {
-                    document.getElementById('log').innerText = '❌ Error ejecutando el proceso.';
-                });
-        }
+  <h3>Exportar Stock</h3>
+  <label for="stockIdDeposito">ID Depósito (requerido):</label><br />
+  <input type="text" id="stockIdDeposito" placeholder="Ejemplo: 1234" />
+  <br />
+  <label for="stockFecha">Fecha (opcional):</label><br />
+  <input type="date" id="stockFecha" />
+  <br />
+  <button onclick="exportarStock()">Descargar Stock</button>
+  <a id="linkDescargaStock" class="descargar" href="#" download>📥 Descargar Stock Excel</a>
 
-        function exportarChecklist() {
-            const fecha = document.getElementById('fechaChecklist').value;
-            const desde = document.getElementById('fechaDesde').value;
-            const hasta = document.getElementById('fechaHasta').value;
-            const linkDescarga = document.getElementById('linkDescargaChecklist');
-            linkDescarga.style.display = 'none';
+  <div id="log">Esperando acciones...</div>
 
-            let url = '/ejecutar/checklist?';
+  <script>
+    function ejecutar(tipo) {
+      const log = document.getElementById('log');
+      const linkDescarga = document.getElementById('linkDescargaCombustible');
+      linkDescarga.style.display = 'none';
+      log.textContent = `⏳ Ejecutando ${tipo}...`;
 
-            let descargaUrl = '/descargar/checklist?';
+      fetch(`/ejecutar/${tipo}`)
+        .then(async (res) => {
+          const text = await res.text();
+          if (!res.ok) throw new Error(text || res.statusText);
+          log.textContent = text;
+          if (tipo === 'combustible') {
+            linkDescarga.href = '/descargar/combustible';
+            linkDescarga.style.display = 'inline-block';
+          }
+        })
+        .catch((err) => {
+          log.textContent = `❌ Error ejecutando el proceso:\n${err.message || err}`;
+        });
+    }
 
-            if (desde && hasta) {
-                url += `desde=${desde}&hasta=${hasta}`;
-                descargaUrl += `desde=${desde}&hasta=${hasta}`;
-            } else if (fecha) {
-                url += `fecha=${fecha}`;
-                descargaUrl += `desde=${fecha}&hasta=${fecha}`;
-            } else {
-                document.getElementById('log').innerText = '⚠️ Seleccioná una fecha o un rango antes de exportar.';
-                return;
+    function exportarChecklist() {
+      const fecha = document.getElementById('fechaChecklist').value;
+      const desde = document.getElementById('fechaDesde').value;
+      const hasta = document.getElementById('fechaHasta').value;
+      const linkDescarga = document.getElementById('linkDescargaChecklist');
+      linkDescarga.style.display = 'none';
+
+      let url = '/ejecutar/checklist?';
+      let descargaUrl = '/descargar/checklist?';
+
+      if (desde && hasta) {
+        url += `desde=${desde}&hasta=${hasta}`;
+        descargaUrl += `desde=${desde}&hasta=${hasta}`;
+      } else if (fecha) {
+        url += `fecha=${fecha}`;
+        descargaUrl += `desde=${fecha}&hasta=${fecha}`;
+      } else {
+        document.getElementById('log').innerText = '⚠️ Seleccioná una fecha o un rango antes de exportar.';
+        return;
+      }
+
+      document.getElementById('log').innerText = '⏳ Exportando checklists...';
+
+      fetch(url)
+        .then(async (res) => {
+          const text = await res.text();
+          if (!res.ok) throw new Error(text || res.statusText);
+          document.getElementById('log').innerText = text;
+          linkDescarga.href = descargaUrl;
+          linkDescarga.style.display = 'inline-block';
+        })
+        .catch((err) => {
+          document.getElementById('log').innerText = `❌ Error ejecutando el proceso:\n${err.message || err}`;
+        });
+    }
+
+    function exportarVentas() {
+      const desde = document.getElementById('fechaVentasDesde').value;
+      const hasta = document.getElementById('fechaVentasHasta').value;
+      const linkDescarga = document.getElementById('linkDescargaVentas');
+      linkDescarga.style.display = 'none';
+
+      if (!desde || !hasta) {
+        document.getElementById('log').innerText = '⚠️ Seleccioná un rango de fechas para exportar ventas.';
+        return;
+      }
+
+      let url = `/ejecutar/ventas?desde=${desde}&hasta=${hasta}`;
+      let descargaUrl = `/descargar/ventas?desde=${desde}&hasta=${hasta}`;
+
+      document.getElementById('log').innerText = '⏳ Exportando ventas...';
+
+      fetch(url)
+        .then(async (res) => {
+          const text = await res.text();
+          if (!res.ok) throw new Error(text || res.statusText);
+          document.getElementById('log').innerText = text;
+          linkDescarga.href = descargaUrl;
+          linkDescarga.style.display = 'inline-block';
+        })
+        .catch((err) => {
+          document.getElementById('log').innerText = `❌ Error ejecutando el proceso:\n${err.message || err}`;
+        });
+    }
+
+    function exportarArticulos() {
+      const articulo = document.getElementById('articuloFiltro').value.trim();
+      const anulado = document.getElementById('articuloAnulado').value;
+      const linkDescarga = document.getElementById('linkDescargaArticulos');
+      linkDescarga.style.display = 'none';
+
+      let url = '/ejecutar/articulos?';
+
+      if (articulo) url += `articulo=${encodeURIComponent(articulo)}&`;
+      if (anulado !== '') url += `anulado=${anulado}&`;
+
+      document.getElementById('log').innerText = '⏳ Exportando artículos...';
+
+      fetch(url)
+        .then(async (res) => {
+          if (res.headers.get('content-type')?.includes('application/json')) {
+            const data = await res.json();
+            document.getElementById('log').innerText = data.mensaje || '✅ Artículos exportados.';
+            if (data.archivo) {
+              linkDescarga.href = `/descargar/articulos?archivo=${encodeURIComponent(data.archivo)}`;
+              linkDescarga.style.display = 'inline-block';
             }
+          } else {
+            const text = await res.text();
+            throw new Error(text || 'Error desconocido');
+          }
+        })
+        .catch((err) => {
+          document.getElementById('log').innerText = `❌ Error ejecutando el proceso:\n${err.message || err}`;
+        });
+    }
 
-            document.getElementById('log').innerText = '⏳ Exportando checklists...';
+    function exportarStock() {
+      const idDeposito = document.getElementById('stockIdDeposito').value.trim();
+      const fecha = document.getElementById('stockFecha').value;
+      const linkDescarga = document.getElementById('linkDescargaStock');
+      linkDescarga.style.display = 'none';
 
-            fetch(url)
-                .then(res => res.text())
-                .then(msg => {
-                    document.getElementById('log').innerText = msg;
-                    linkDescarga.href = descargaUrl;
-                    linkDescarga.style.display = 'inline-block';
-                })
-                .catch(() => {
-                    document.getElementById('log').innerText = '❌ Error ejecutando el proceso.';
-                });
-        }
-    </script>
+      if (!idDeposito) {
+        document.getElementById('log').innerText = '⚠️ Ingresá el ID del depósito.';
+        return;
+      }
 
+      const frescuraBool = true;
+
+      let url = `/ejecutar/stock?idDeposito=${encodeURIComponent(idDeposito)}&frescura=${frescuraBool}`;
+      if (fecha) url += `&fecha=${fecha}`;
+
+      document.getElementById('log').innerText = '⏳ Exportando stock...';
+
+      fetch(url)
+        .then(async (res) => {
+          if (res.headers.get('content-type')?.includes('application/json')) {
+            const data = await res.json();
+            document.getElementById('log').innerText = data.mensaje || '✅ Stock exportado.';
+            if (data.archivo) {
+              linkDescarga.href = `/descargar/stock?archivo=${encodeURIComponent(data.archivo)}`;
+              linkDescarga.style.display = 'inline-block';
+            }
+          } else {
+            const text = await res.text();
+            throw new Error(text || 'Error desconocido');
+          }
+        })
+        .catch((err) => {
+          document.getElementById('log').innerText = `❌ Error ejecutando el proceso:\n${err.message || err}`;
+        });
+    }
+  </script>
 </body>
 </html>

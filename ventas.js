@@ -5,7 +5,7 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 
-// 📌 Configuración para ventas
+// Configuración ventas
 const CONFIG = {
   BASE_URL: 'http://appserver31.dyndns.org:8102/web/api/chess/v1',
   USUARIO: 'nyapura',
@@ -13,42 +13,35 @@ const CONFIG = {
   DESTINO: path.join(__dirname, 'archivos')
 };
 
-// Configuración para checklist
+// Configuración checklist
 const CHECKLIST_API_URL = 'https://fleet.cloudfleet.com/api/v1/checklist/';
 const CHECKLIST_API_TOKEN = 'GRXZmHk.Ux35aG6PkT3-sTMRYLnM4IR1YSkhqInHe';
 
-// Asegura carpeta de destino para ventas
+// Asegura carpeta destino ventas
 if (!fs.existsSync(CONFIG.DESTINO)) {
   fs.mkdirSync(CONFIG.DESTINO, { recursive: true });
 }
 
-// --- Funciones para Ventas ---
-
+// Login para obtener sessionId
 async function obtenerSessionId() {
-  try {
-    const { data, headers } = await axios.post(
-      `${CONFIG.BASE_URL}/auth/login`,
-      { usuario: CONFIG.USUARIO, password: CONFIG.PASSWORD },
-      { headers: { Accept: 'application/json', 'Content-Type': 'application/json' } }
-    );
-    // Debug login response
-    console.log('Login response data:', data);
-
-    let sid = data.sessionId?.replace('JSESSIONID=', '');
-    if (!sid && headers['set-cookie']) {
-      const m = headers['set-cookie'][0].match(/JSESSIONID=([^;]+)/);
-      if (m) sid = m[1];
-    }
-    if (!sid) throw new Error('No llegó sessionId');
-    return sid;
-  } catch (error) {
-    console.error('Error en login:', error.response?.data || error.message);
-    throw error;
+  const { data, headers } = await axios.post(
+    `${CONFIG.BASE_URL}/auth/login`,
+    { usuario: CONFIG.USUARIO, password: CONFIG.PASSWORD },
+    { headers: { Accept: 'application/json', 'Content-Type': 'application/json' } }
+  );
+  let sid = data.sessionId?.replace('JSESSIONID=', '');
+  if (!sid && headers['set-cookie']) {
+    const m = headers['set-cookie'][0].match(/JSESSIONID=([^;]+)/);
+    if (m) sid = m[1];
   }
+  if (!sid) throw new Error('No llegó sessionId');
+  return sid;
 }
 
-async function obtenerVentas(sid, desde, hasta) {
-  try {
+// Función para obtener ventas paginadas (async generator)
+async function* obtenerVentasPaginado(sid, desde, hasta, paginaInicio = 1, limitePorPagina = 100) {
+  let pagina = paginaInicio;
+  while (true) {
     const res = await axios.get(`${CONFIG.BASE_URL}/ventas/`, {
       headers: { Accept: 'application/json', Cookie: `JSESSIONID=${sid}` },
       params: {
@@ -56,74 +49,83 @@ async function obtenerVentas(sid, desde, hasta) {
         fechaHasta: hasta,
         empresas: '1',
         detallado: true,
-        nroLote: 0
+        nroLote: 0,
+        page: pagina,
+        limit: limitePorPagina
       },
       withCredentials: true
     });
-    // Debug ventas raw data
-    console.log('Ventas raw data:', res.data);
 
-    if (
-      !res.data.dsReporteComprobantesApi ||
-      !Array.isArray(res.data.dsReporteComprobantesApi.VentasResumen)
-    ) {
-      const errorPath = path.join(CONFIG.DESTINO, 'error_ventas.json');
-      fs.writeFileSync(errorPath, JSON.stringify(res.data, null, 2));
-      throw new Error(`Respuesta inesperada, revisá ${errorPath}`);
-    }
+    const ventas = res.data.dsReporteComprobantesApi?.VentasResumen || [];
 
-    return res.data.dsReporteComprobantesApi.VentasResumen;
-  } catch (error) {
-    console.error('Error al obtener ventas:', error.response?.data || error.message);
-    throw error;
+    if (!ventas.length) break;
+
+    yield ventas;
+
+    if (ventas.length < limitePorPagina) break; // Última página
+
+    pagina++;
   }
 }
 
-function extraerResumen(comprobantes) {
-  // Ajusta según lo que necesites exportar en resumen
-  return comprobantes;
-}
-
-function extraerDetalle(comprobantes) {
-  // Ajusta según lo que necesites exportar en detalle
-  return comprobantes;
-}
-
-async function exportarExcelVentas(comps, desde, hasta) {
-  const wb = new ExcelJS.Workbook();
-  const resumen = extraerResumen(comps);
-
-  if (resumen.length) {
-    const ws = wb.addWorksheet('Resumen');
-    ws.columns = Object.keys(resumen[0]).map((k) => ({ header: k, key: k, width: 20 }));
-    resumen.forEach((r) => ws.addRow(r));
-  }
-
-  const detalle = extraerDetalle(comps);
-
-  if (detalle.length) {
-    const ws2 = wb.addWorksheet('Detalle');
-    ws2.columns = Object.keys(detalle[0]).map((k) => ({ header: k, key: k, width: 20 }));
-    detalle.forEach((r) => ws2.addRow(r));
-  }
-
+// Función para exportar ventas con streaming para evitar consumo de memoria
+async function exportarExcelVentasStreaming(sid, desde, hasta) {
   const nombreArchivo = `ventas_${desde}_al_${hasta}.xlsx`;
   const rutaArchivo = path.join(CONFIG.DESTINO, nombreArchivo);
 
-  await wb.xlsx.writeFile(rutaArchivo);
+  const workbook = new ExcelJS.stream.xlsx.WorkbookWriter({
+    filename: rutaArchivo,
+    useStyles: true,
+    useSharedStrings: true
+  });
+  const worksheet = workbook.addWorksheet('Ventas');
+
+  let columnasSeteadas = false;
+
+  for await (const bloqueVentas of obtenerVentasPaginado(sid, desde, hasta)) {
+    if (!columnasSeteadas) {
+      worksheet.columns = Object.keys(bloqueVentas[0]).map(key => ({
+        header: key,
+        key,
+        width: 20
+      }));
+      columnasSeteadas = true;
+    }
+    for (const fila of bloqueVentas) {
+      worksheet.addRow(fila).commit();
+    }
+  }
+
+  await worksheet.commit();
+  await workbook.commit();
 
   return rutaArchivo;
 }
 
+// Función principal para ventas
 async function generarVentas(desde, hasta) {
   const sid = await obtenerSessionId();
-  const ventas = await obtenerVentas(sid, desde, hasta);
 
-  if (!ventas.length) {
+  // Sólo para validar que haya ventas (no trae todo para validar)
+  const resTest = await axios.get(`${CONFIG.BASE_URL}/ventas/`, {
+    headers: { Accept: 'application/json', Cookie: `JSESSIONID=${sid}` },
+    params: {
+      fechaDesde: desde,
+      fechaHasta: hasta,
+      empresas: '1',
+      detallado: true,
+      nroLote: 0,
+      page: 1,
+      limit: 1
+    }
+  });
+
+  const ventasTest = resTest.data.dsReporteComprobantesApi?.VentasResumen || [];
+  if (!ventasTest.length) {
     throw new Error('No hay ventas para exportar.');
   }
 
-  const archivo = await exportarExcelVentas(ventas, desde, hasta);
+  const archivo = await exportarExcelVentasStreaming(sid, desde, hasta);
 
   return archivo;
 }
@@ -171,66 +173,53 @@ async function descargarChecklists(fechaDesde, fechaHasta) {
   let paginaActual = 1;
   const LIMITE_POR_PAGINA = 50;
 
-  try {
-    while (true) {
-      const response = await axios.get(CHECKLIST_API_URL, {
-        headers: {
-          Authorization: `Bearer ${CHECKLIST_API_TOKEN}`,
-          'Content-Type': 'application/json; charset=utf-8'
-        },
-        params: {
-          checklistDateFrom: `${fechaDesde}T00:00:00Z`,
-          checklistDateTo: `${fechaHasta}T23:59:59Z`,
-          page: paginaActual
-        }
-      });
-
-      const data = response.data?.data || response.data || [];
-
-      if (!Array.isArray(data) || data.length === 0) {
-        console.log(`🚩 Fin de resultados. Total final: ${checklistsTotales.length}`);
-        break;
+  while (true) {
+    const response = await axios.get(CHECKLIST_API_URL, {
+      headers: {
+        Authorization: `Bearer ${CHECKLIST_API_TOKEN}`,
+        'Content-Type': 'application/json; charset=utf-8'
+      },
+      params: {
+        checklistDateFrom: `${fechaDesde}T00:00:00Z`,
+        checklistDateTo: `${fechaHasta}T23:59:59Z`,
+        page: paginaActual
       }
+    });
 
-      checklistsTotales = checklistsTotales.concat(data);
+    const data = response.data?.data || response.data || [];
 
-      console.log(`📄 Página ${paginaActual}: descargados ${data.length}, acumulados ${checklistsTotales.length}`);
+    if (!Array.isArray(data) || data.length === 0) break;
 
-      if (data.length < LIMITE_POR_PAGINA) {
-        console.log('📌 Última página detectada por menos registros.');
-        break;
-      }
+    checklistsTotales = checklistsTotales.concat(data);
 
-      paginaActual++;
-    }
+    if (data.length < LIMITE_POR_PAGINA) break;
 
-    if (checklistsTotales.length === 0) {
-      console.log('⚠️ No se encontraron checklists.');
-      return null;
-    }
-
-    const checklistsPlanos = checklistsTotales.map(aplanarChecklist);
-
-    const worksheet = xlsx.utils.json_to_sheet(checklistsPlanos);
-    const workbook = xlsx.utils.book_new();
-    xlsx.utils.book_append_sheet(workbook, worksheet, 'Checklists');
-
-    const esServidor = process.env.RENDER === 'true' || process.env.VERCEL === '1';
-    const saveFolder = esServidor ? '/tmp' : path.join(os.homedir(), 'Desktop');
-    const excelPath = path.join(saveFolder, `checklists_${fechaDesde}_al_${fechaHasta}.xlsx`);
-
-    xlsx.writeFile(workbook, excelPath);
-
-    console.log(`✅ Archivo Excel generado en: ${excelPath}`);
-
-    return excelPath;
-  } catch (error) {
-    console.error('❌ Error:', error.response?.data || error.message);
-    throw error;
+    paginaActual++;
   }
+
+  if (checklistsTotales.length === 0) {
+    console.log('⚠️ No se encontraron checklists.');
+    return null;
+  }
+
+  const checklistsPlanos = checklistsTotales.map(aplanarChecklist);
+
+  const worksheet = xlsx.utils.json_to_sheet(checklistsPlanos);
+  const workbook = xlsx.utils.book_new();
+  xlsx.utils.book_append_sheet(workbook, worksheet, 'Checklists');
+
+  const esServidor = process.env.RENDER === 'true' || process.env.VERCEL === '1';
+  const saveFolder = esServidor ? '/tmp' : path.join(os.homedir(), 'Desktop');
+  const excelPath = path.join(saveFolder, `checklists_${fechaDesde}_al_${fechaHasta}.xlsx`);
+
+  xlsx.writeFile(workbook, excelPath);
+
+  console.log(`✅ Archivo Excel generado en: ${excelPath}`);
+
+  return excelPath;
 }
 
-// --- Función para correr ambas descargas juntas (opcional) ---
+// Función para ejecutar ambas descargas (opcional)
 async function descargarVentasYChecklists(desde, hasta) {
   try {
     const archivoVentas = await generarVentas(desde, hasta);

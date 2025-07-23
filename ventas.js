@@ -3,40 +3,42 @@ const ExcelJS = require('exceljs');
 const fs = require('fs');
 const path = require('path');
 
-// 🔧 Configuración base
+const esServidor = process.env.RENDER === 'true' || process.env.VERCEL === '1';
+
 const CONFIG = {
   BASE_URL: 'http://appserver31.dyndns.org:8102/web/api/chess/v1',
   USUARIO: 'nyapura',
   PASSWORD: '1234',
-  DESTINO: path.join(__dirname, 'archivos'),
+  DESTINO: esServidor ? '/tmp' : path.join(__dirname, 'archivos'),
 };
 
-// 📂 Asegurar carpeta de destino
 if (!fs.existsSync(CONFIG.DESTINO)) {
   fs.mkdirSync(CONFIG.DESTINO, { recursive: true });
 }
 
-// 🔐 Autenticación y obtención de JSESSIONID
 async function obtenerSessionId() {
-  const response = await axios.post(
-    `${CONFIG.BASE_URL}/auth/login`,
-    { usuario: CONFIG.USUARIO, password: CONFIG.PASSWORD },
-    { headers: { Accept: 'application/json', 'Content-Type': 'application/json' } }
-  );
+  try {
+    const response = await axios.post(
+      `${CONFIG.BASE_URL}/auth/login`,
+      { usuario: CONFIG.USUARIO, password: CONFIG.PASSWORD },
+      { headers: { Accept: 'application/json', 'Content-Type': 'application/json' } }
+    );
 
-  const { data, headers } = response;
-  let sid = data.sessionId?.replace('JSESSIONID=', '');
+    const { data, headers } = response;
+    let sid = data.sessionId?.replace('JSESSIONID=', '');
 
-  if (!sid && headers['set-cookie']) {
-    const match = headers['set-cookie'][0].match(/JSESSIONID=([^;]+)/);
-    if (match) sid = match[1];
+    if (!sid && headers['set-cookie']) {
+      const match = headers['set-cookie'][0].match(/JSESSIONID=([^;]+)/);
+      if (match) sid = match[1];
+    }
+
+    if (!sid) throw new Error('❌ No se pudo obtener sessionId.');
+    return sid;
+  } catch (error) {
+    throw new Error(`❌ Error autenticando: ${error.message}`);
   }
-
-  if (!sid) throw new Error('❌ No se pudo obtener sessionId.');
-  return sid;
 }
 
-// 📊 Obtener datos de ventas
 async function obtenerDatosVentas(sessionId, desde, hasta) {
   const response = await axios.get(`${CONFIG.BASE_URL}/ventas/`, {
     headers: {
@@ -55,7 +57,6 @@ async function obtenerDatosVentas(sessionId, desde, hasta) {
   return response.data?.dsReporteComprobantesApi?.VentasResumen || [];
 }
 
-// 🧾 Procesamiento (modificable según tu lógica)
 function obtenerResumen(ventas) {
   return ventas;
 }
@@ -64,7 +65,6 @@ function obtenerDetalle(ventas) {
   return ventas;
 }
 
-// 📁 Exportar archivo Excel
 async function exportarVentasExcel(ventas, desde, hasta) {
   const workbook = new ExcelJS.Workbook();
 
@@ -97,7 +97,6 @@ async function exportarVentasExcel(ventas, desde, hasta) {
   return rutaArchivo;
 }
 
-// 🚀 Función principal
 async function generarVentas(desde, hasta) {
   const sessionId = await obtenerSessionId();
   const ventas = await obtenerDatosVentas(sessionId, desde, hasta);

@@ -25,40 +25,68 @@ if (!fs.existsSync(CONFIG.DESTINO)) {
 // --- Funciones para Ventas ---
 
 async function obtenerSessionId() {
-  const { data, headers } = await axios.post(
-    `${CONFIG.BASE_URL}/auth/login`,
-    { usuario: CONFIG.USUARIO, password: CONFIG.PASSWORD },
-    { headers: { Accept: 'application/json', 'Content-Type': 'application/json' } }
-  );
-  let sid = data.sessionId?.replace('JSESSIONID=', '');
-  if (!sid && headers['set-cookie']) {
-    const m = headers['set-cookie'][0].match(/JSESSIONID=([^;]+)/);
-    if (m) sid = m[1];
+  try {
+    const { data, headers } = await axios.post(
+      `${CONFIG.BASE_URL}/auth/login`,
+      { usuario: CONFIG.USUARIO, password: CONFIG.PASSWORD },
+      { headers: { Accept: 'application/json', 'Content-Type': 'application/json' } }
+    );
+    // Debug login response
+    console.log('Login response data:', data);
+
+    let sid = data.sessionId?.replace('JSESSIONID=', '');
+    if (!sid && headers['set-cookie']) {
+      const m = headers['set-cookie'][0].match(/JSESSIONID=([^;]+)/);
+      if (m) sid = m[1];
+    }
+    if (!sid) throw new Error('No llegó sessionId');
+    return sid;
+  } catch (error) {
+    console.error('Error en login:', error.response?.data || error.message);
+    throw error;
   }
-  if (!sid) throw new Error('No llegó sessionId');
-  return sid;
 }
 
 async function obtenerVentas(sid, desde, hasta) {
-  const res = await axios.get(`${CONFIG.BASE_URL}/ventas/`, {
-    headers: { Accept: 'application/json', Cookie: `JSESSIONID=${sid}` },
-    params: {
-      fechaDesde: desde,
-      fechaHasta: hasta,
-      empresas: '1',
-      detallado: true,
-      nroLote: 0
+  try {
+    const res = await axios.get(`${CONFIG.BASE_URL}/ventas/`, {
+      headers: { Accept: 'application/json', Cookie: `JSESSIONID=${sid}` },
+      params: {
+        fechaDesde: desde,
+        fechaHasta: hasta,
+        empresas: '1',
+        detallado: true,
+        nroLote: 0
+      },
+      withCredentials: true
+    });
+    // Debug ventas raw data
+    console.log('Ventas raw data:', res.data);
+
+    if (
+      !res.data.dsReporteComprobantesApi ||
+      !Array.isArray(res.data.dsReporteComprobantesApi.VentasResumen)
+    ) {
+      const errorPath = path.join(CONFIG.DESTINO, 'error_ventas.json');
+      fs.writeFileSync(errorPath, JSON.stringify(res.data, null, 2));
+      throw new Error(`Respuesta inesperada, revisá ${errorPath}`);
     }
-  });
-  return res.data.dsReporteComprobantesApi?.VentasResumen || [];
+
+    return res.data.dsReporteComprobantesApi.VentasResumen;
+  } catch (error) {
+    console.error('Error al obtener ventas:', error.response?.data || error.message);
+    throw error;
+  }
 }
 
 function extraerResumen(comprobantes) {
-  return comprobantes; // Ajusta según necesidad
+  // Ajusta según lo que necesites exportar en resumen
+  return comprobantes;
 }
 
 function extraerDetalle(comprobantes) {
-  return comprobantes; // Ajusta según necesidad
+  // Ajusta según lo que necesites exportar en detalle
+  return comprobantes;
 }
 
 async function exportarExcelVentas(comps, desde, hasta) {
@@ -67,16 +95,16 @@ async function exportarExcelVentas(comps, desde, hasta) {
 
   if (resumen.length) {
     const ws = wb.addWorksheet('Resumen');
-    ws.columns = Object.keys(resumen[0]).map(k => ({ header: k, key: k, width: 20 }));
-    resumen.forEach(r => ws.addRow(r));
+    ws.columns = Object.keys(resumen[0]).map((k) => ({ header: k, key: k, width: 20 }));
+    resumen.forEach((r) => ws.addRow(r));
   }
 
   const detalle = extraerDetalle(comps);
 
   if (detalle.length) {
     const ws2 = wb.addWorksheet('Detalle');
-    ws2.columns = Object.keys(detalle[0]).map(k => ({ header: k, key: k, width: 20 }));
-    detalle.forEach(r => ws2.addRow(r));
+    ws2.columns = Object.keys(detalle[0]).map((k) => ({ header: k, key: k, width: 20 }));
+    detalle.forEach((r) => ws2.addRow(r));
   }
 
   const nombreArchivo = `ventas_${desde}_al_${hasta}.xlsx`;
@@ -196,7 +224,6 @@ async function descargarChecklists(fechaDesde, fechaHasta) {
     console.log(`✅ Archivo Excel generado en: ${excelPath}`);
 
     return excelPath;
-
   } catch (error) {
     console.error('❌ Error:', error.response?.data || error.message);
     throw error;
